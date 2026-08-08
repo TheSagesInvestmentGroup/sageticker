@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SageTicker — Your Portfolio, Always On Screen</title>
+<meta name="description" content="The Wall Street ticker, live in your pocket. Your stocks, options and futures scrolling with green up / red down from the open — plus breaking-news flags and one-tap broker jump-links.">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#05070c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SageTicker">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="SageTicker">
+<meta property="og:title" content="SageTicker — Your Portfolio, Always On Screen">
+<meta property="og:description" content="The Wall Street ticker, live in your pocket. Watch your portfolio scroll — green up, red down — with breaking-news flags and one-tap broker links. Free to try.">
+<meta property="og:url" content="https://sageticker.netlify.app/">
+<meta property="og:image" content="https://sageticker.netlify.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="SageTicker — Your Portfolio, Always On Screen">
+<meta name="twitter:description" content="The Wall Street ticker, live in your pocket. Green up, red down, breaking-news flags, one-tap broker links.">
+<meta name="twitter:image" content="https://sageticker.netlify.app/og-image.png">
+<style>
+/* ============ CONFIG: set your real Stripe Payment Link below (Account tab uses it) ============ */
+:root{
+  --tfs:18px;            /* ticker font size */
+  --tspeed:28s;          /* portfolio tape loop duration */
+  --mspeed:34s;          /* market tape loop duration (equal or slower than portfolio) */
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-font-smoothing:antialiased}
+body{background:#0b0e14;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  display:flex;justify-content:center;align-items:flex-start;gap:28px;padding:26px;min-height:100vh;flex-wrap:wrap}
+h1,h2,h3{font-weight:700}
+/* ---------- side panel ---------- */
+.side{color:#aab4c8;max-width:300px;font-size:13px;line-height:1.55;padding-top:8px}
+.side h1{color:#fff;font-size:20px;margin-bottom:8px}
+.side .tag{color:#3ddc84;font-weight:600}
+.side ul{margin:10px 0 0 16px}
+.side li{margin-bottom:7px}
+.side .note{margin-top:14px;padding:10px;border:1px solid #26304a;border-radius:10px;background:#111726;font-size:12px}
+/* ---------- phone frame ---------- */
+.phone{width:392px;height:800px;background:#000;border-radius:48px;border:6px solid #1c1f26;
+  box-shadow:0 30px 80px rgba(0,0,0,.65);position:relative;overflow:hidden;flex-shrink:0}
+.notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:120px;height:28px;background:#000;border-radius:16px;z-index:60}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden;
+  background:var(--bg,#05070c);color:var(--fg,#e8ecf4);transition:background .4s}
+/* themes */
+.screen.t-dark {--bg:#05070c;--fg:#e8ecf4;--tape:#0b111d;--card:#0e1524;--line:#1d2740;--up:#22e07c;--down:#ff4d5e;--accent:#3d7bff}
+.screen.t-light{--bg:#f4f6fa;--fg:#111826;--tape:#ffffff;--card:#ffffff;--line:#dbe2ee;--up:#0a8a4d;--down:#d21f33;--accent:#2456d6}
+.screen.t-matrix{--bg:#010603;--fg:#c9ffd9;--tape:rgba(1,10,4,.82);--card:rgba(2,16,7,.9);--line:#0c3a1c;--up:#39ff88;--down:#ff5560;--accent:#2fdc6e}
+.screen.t-wallst{--bg:linear-gradient(180deg,#0a1024 0%,#131c3a 55%,#0a1024 100%);--fg:#f0e9d8;--tape:rgba(8,12,30,.85);--card:rgba(14,20,44,.92);--line:#2a355e;--up:#37e58c;--down:#ff5364;--accent:#d8b45a}
+.screen.t-money{--bg:#0c1a12;--fg:#eafbe9;--tape:rgba(6,20,12,.85);--card:rgba(10,26,16,.92);--line:#1d4a2e;--up:#4dff9d;--down:#ff5560;--accent:#7bd88a}
+.screen{background:var(--bg)}
+#fx{position:absolute;inset:0;z-index:0;pointer-events:none;opacity:0;transition:opacity .5s}
+.screen.t-matrix #fx,.screen.t-money #fx{opacity:.5}
+.screen.t-wallst::before{content:'';position:absolute;inset:0;z-index:0;
+  background:repeating-linear-gradient(90deg,transparent 0 42px,rgba(216,180,90,.05) 42px 46px)}
+/* ---------- top bar ---------- */
+.top{position:relative;z-index:5;padding:48px 16px 8px;display:flex;justify-content:space-between;align-items:center}
+.brand{font-size:17px;font-weight:800;letter-spacing:.4px}
+.brand b{color:var(--up)}
+.pill{font-size:10px;padding:3px 9px;border-radius:20px;border:1px solid var(--line);color:var(--fg);opacity:.85}
+.pill.live{border-color:var(--up);color:var(--up)}
+.pill.live::before{content:'●';margin-right:4px;animation:blink 1.6s infinite}
+@keyframes blink{50%{opacity:.25}}
+/* segmented control */
+.seg{position:relative;z-index:5;display:flex;margin:8px 12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:3px}
+.seg button{flex:1;border:0;background:transparent;color:var(--fg);opacity:.6;font-size:11px;font-weight:600;padding:8px 2px;border-radius:9px;cursor:pointer}
+.seg button.on{background:var(--accent);color:#fff;opacity:1}
+/* ---------- main area ---------- */
+.main{position:relative;z-index:4;flex:1;overflow-y:auto;overflow-x:hidden;padding-bottom:8px}
+.page{display:none;height:100%}
+.page.on{display:block}
+/* ---------- ticker tape ---------- */
+.tapewrap{background:var(--tape);border-top:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;position:relative}
+.tlabel{position:absolute;left:0;top:0;bottom:0;z-index:3;display:flex;align-items:center;padding:0 8px;
+  font-size:9px;font-weight:800;letter-spacing:1px;background:var(--accent);color:#fff}
+.ttrack{display:inline-flex;white-space:nowrap;align-items:center;will-change:transform;padding-left:54px}
+.tapewrap.pf .ttrack{animation:scroll var(--tspeed) linear infinite}
+.tapewrap.mk .ttrack{animation:scroll var(--mspeed) linear infinite}
+.paused .ttrack{animation-play-state:paused}
+@keyframes scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.titem{display:inline-flex;align-items:center;gap:7px;padding:10px 16px;font-size:var(--tfs);font-weight:700;
+  font-family:'SF Mono',Consolas,'Roboto Mono',monospace;cursor:pointer}
+.titem .sym{color:var(--fg)}
+.titem .prc{color:var(--fg);opacity:.92}
+.titem .up{color:var(--up)}
+.titem .dn{color:var(--down)}
+.sep{opacity:.25;font-size:var(--tfs)}
+.newsic{position:relative;display:inline-flex;align-items:center;justify-content:center;width:1.5em;height:1.2em;cursor:pointer}
+.newsic .paper{font-size:1.05em;filter:drop-shadow(0 0 4px rgba(255,200,60,.6))}
+.newsic .embed{position:absolute;bottom:-2px;right:-4px;font-size:.42em;font-weight:900;background:#ffb300;color:#000;
+  padding:0 3px;border-radius:3px;letter-spacing:.3px}
+/* spotlight */
+.spot{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:26px 18px 10px;text-align:center}
+.spot .ssym{font-size:44px;font-weight:900;letter-spacing:1px}
+.spot .snam{font-size:12px;opacity:.6;margin-bottom:10px}
+.spot .sprc{font-size:52px;font-weight:800;font-family:'SF Mono',Consolas,monospace}
+.spot .schg{font-size:20px;font-weight:800;margin-top:6px;font-family:Consolas,monospace}
+.spot canvas{margin-top:14px;border-radius:10px}
+.spot .nav{display:flex;gap:14px;margin-top:14px}
+.spot .nav button,.ghost{background:var(--card);border:1px solid var(--line);color:var(--fg);border-radius:10px;padding:8px 18px;cursor:pointer;font-size:13px}
+.spot .newsbadge{margin-top:12px}
+/* controls */
+.ctrls{margin:12px;padding:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;font-size:12px}
+.ctrls label{display:flex;align-items:center;gap:10px;margin-bottom:8px;opacity:.9}
+.ctrls input[type=range]{flex:1;accent-color:var(--accent)}
+.ctrls .val{width:44px;text-align:right;font-family:Consolas,monospace}
+/* news rail */
+.railwrap{display:flex;height:calc(100% - 4px)}
+.railmain{flex:1;display:flex;flex-direction:column;justify-content:center}
+.rail{width:148px;border-left:1px solid var(--line);overflow:hidden;position:relative;background:var(--tape)}
+.rail h4{font-size:9px;letter-spacing:1.4px;padding:8px 10px 4px;color:var(--accent)}
+.railtrack{display:flex;flex-direction:column;animation:vscroll 26s linear infinite}
+@keyframes vscroll{from{transform:translateY(0)}to{transform:translateY(-50%)}}
+.rcard{margin:5px 8px;padding:8px;background:var(--card);border:1px solid var(--line);border-radius:9px;font-size:10px;line-height:1.4;cursor:pointer}
+.rcard b{color:var(--accent)}
+/* lists / cards */
+.card{margin:10px 12px;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.card h3{font-size:12px;letter-spacing:1px;padding:11px 14px 7px;color:var(--accent);text-transform:uppercase}
+.row{display:flex;align-items:center;padding:10px 14px;border-top:1px solid var(--line);font-size:13px;cursor:pointer}
+.row .rs{width:64px;font-weight:800;font-family:Consolas,monospace}
+.row .rn{flex:1;font-size:11px;opacity:.65}
+.row .rp{width:78px;text-align:right;font-family:Consolas,monospace}
+.row .rc{width:86px;text-align:right;font-family:Consolas,monospace;font-weight:700;font-size:12px}
+.row .add{margin-left:8px;width:24px;height:24px;border-radius:7px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;font-weight:800}
+.totline{display:flex;justify-content:space-between;padding:11px 14px;font-size:13px;border-top:1px solid var(--line);font-weight:700}
+.btn{display:block;width:calc(100% - 24px);margin:12px;padding:13px;border:0;border-radius:12px;background:var(--accent);
+  color:#fff;font-size:14px;font-weight:700;cursor:pointer}
+.btn.sub{background:transparent;border:1px solid var(--line);color:var(--fg)}
+.addform{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--line)}
+.addform input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:8px;font-size:12px}
+/* tabs */
+.tabs{position:relative;z-index:6;display:flex;background:var(--tape);border-top:1px solid var(--line);padding:6px 4px 20px}
+.tabs button{flex:1;background:none;border:0;color:var(--fg);opacity:.45;font-size:9.5px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;font-weight:600}
+.tabs button .ic{font-size:19px}
+.tabs button.on{opacity:1;color:var(--accent)}
+/* sheets & modals */
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:50;background:var(--card);border-top:1px solid var(--line);
+  border-radius:22px 22px 0 0;padding:16px;transform:translateY(105%);transition:transform .3s;max-height:72%;overflow-y:auto}
+.sheet.open{transform:translateY(0)}
+.sheet h3{font-size:15px;margin-bottom:4px}
+.sheet .sub2{font-size:11px;opacity:.6;margin-bottom:12px}
+.sheet .close{position:absolute;top:12px;right:14px;background:var(--line);border:0;color:var(--fg);width:26px;height:26px;border-radius:50%;cursor:pointer}
+.nitem{padding:10px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;font-size:12px;line-height:1.45;cursor:pointer}
+.nitem .src{font-size:10px;opacity:.55}
+.brk{display:flex;align-items:center;gap:10px;padding:11px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;cursor:pointer;font-size:13px;font-weight:600}
+.brk .logo{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;font-size:13px}
+.dim{position:absolute;inset:0;background:rgba(0,0,0,.5);z-index:40;opacity:0;pointer-events:none;transition:opacity .3s}
+.dim.on{opacity:1;pointer-events:auto}
+/* support chat */
+.chat{display:flex;flex-direction:column;height:100%}
+.msgs{flex:1;overflow-y:auto;padding:12px}
+.m{max-width:82%;padding:9px 12px;border-radius:14px;font-size:12.5px;line-height:1.5;margin-bottom:8px}
+.m.ai{background:var(--card);border:1px solid var(--line)}
+.m.me{background:var(--accent);color:#fff;margin-left:auto}
+.chatin{display:flex;gap:8px;padding:10px 12px}
+.chatin input{flex:1;background:var(--card);border:1px solid var(--line);border-radius:20px;color:var(--fg);padding:10px 14px;font-size:12px}
+.chatin button{background:var(--accent);border:0;color:#fff;border-radius:20px;padding:0 16px;cursor:pointer;font-weight:700}
+.qbtn{display:inline-block;margin:0 6px 8px 0;padding:6px 11px;border:1px solid var(--accent);color:var(--accent);border-radius:16px;font-size:11px;cursor:pointer;background:transparent}
+/* account / checkout */
+.plan{padding:14px}
+.plan .price{font-size:34px;font-weight:900}
+.plan .per{font-size:13px;opacity:.6}
+.feat{font-size:12px;padding:5px 0;opacity:.9}
+.feat::before{content:'✓  ';color:var(--up);font-weight:900}
+.legal{font-size:10px;line-height:1.5;opacity:.6;padding:10px 14px}
+.payopt{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;cursor:pointer;font-size:13px}
+.payopt.sel{border-color:var(--accent);background:rgba(61,123,255,.08)}
+.payopt .pi{font-size:20px}
+.ownerkpi{display:flex;gap:8px;padding:0 14px 12px}
+.kpi{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}
+.kpi .kv{font-size:17px;font-weight:800;font-family:Consolas,monospace}
+.kpi .kl{font-size:9px;opacity:.6;letter-spacing:.5px}
+.toast{position:absolute;top:90px;left:50%;transform:translateX(-50%) translateY(-20px);z-index:70;background:#0f172c;color:#fff;
+  border:1px solid var(--accent);padding:10px 16px;border-radius:12px;font-size:12px;opacity:0;transition:all .3s;pointer-events:none;max-width:86%;text-align:center}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.themerow{display:flex;gap:8px;padding:10px 14px 14px;flex-wrap:wrap}
+.tchip{padding:7px 12px;border-radius:9px;border:1px solid var(--line);font-size:11px;font-weight:700;cursor:pointer;background:var(--bg);color:var(--fg)}
+.tchip.on{border-color:var(--accent);color:var(--accent)}
+.demo{position:absolute;bottom:2px;left:0;right:0;text-align:center;font-size:8.5px;color:#556;z-index:80}
+/* chart type selector */
+.charttabs{display:flex;gap:6px;justify-content:center;margin:2px 0 4px;position:relative;z-index:2}
+.ctab{padding:4px 12px;border:1px solid var(--line);border-radius:12px;font-size:10px;font-weight:800;cursor:pointer;color:var(--fg);opacity:.6;background:transparent}
+.ctab.on{border-color:var(--accent);color:var(--accent);opacity:1}
+/* portfolio scroll view centered vertically */
+#pg-home{height:100%}
+#v-scroll{height:100%;display:flex;flex-direction:column;justify-content:center;gap:10px;padding-bottom:26px}
+#v-scroll .card{margin-top:0}
+/* spotlight scales with per-page font setting */
+.spot .ssym{font-size:calc(var(--tfs)*2.4)!important}
+.spot .sprc{font-size:calc(var(--tfs)*2.9)!important}
+.spot .schg{font-size:calc(var(--tfs)*1.1)!important}
+/* portfolio summary */
+.pfsum{display:flex;align-items:center;justify-content:space-between;padding:2px 14px 0}
+.pfval{font-size:26px;font-weight:900;font-family:'SF Mono',Consolas,monospace}
+.pfchg{font-size:13px;font-weight:700;font-family:Consolas,monospace;margin-top:2px}
+.pfnews{position:relative;width:56px;height:50px;border-radius:12px;border:1px solid var(--line);background:var(--bg);font-size:25px;cursor:pointer}
+.pfnews .embed2{position:absolute;bottom:2px;right:4px;font-size:8px;font-weight:900;background:#ffb300;color:#000;padding:0 3px;border-radius:3px}
+.pfnews .badge{position:absolute;top:-7px;right:-7px;background:var(--down);color:#fff;font-size:9px;font-weight:800;min-width:17px;height:17px;border-radius:9px;display:flex;align-items:center;justify-content:center}
+/* dual deck */
+.deck{margin-bottom:7px}
+#v-dual .titem{font-size:calc(var(--tfs)*1.22)}
+#v-dual .sep{font-size:calc(var(--tfs)*1.22)}
+/* font & speed FAB */
+.fab{position:absolute;right:12px;bottom:88px;z-index:30;background:var(--accent);color:#fff;border:0;border-radius:22px;padding:10px 15px;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.45)}
+/* news rail (spotlight-style) */
+.nrhead{position:relative;text-align:center;padding:16px 16px 6px;overflow:hidden}
+.nrbg{position:absolute;inset:-36px 0 0 0;display:flex;align-items:center;justify-content:center;font-size:170px;opacity:.07;pointer-events:none}
+.chiprow{display:flex;gap:6px;padding:6px 8px 8px;flex-wrap:wrap;justify-content:center;position:relative;z-index:2}
+.chip{--cc:var(--accent);padding:5px 10px;border:1.5px solid var(--cc);color:var(--cc);border-radius:14px;font-size:10px;font-weight:800;cursor:pointer;background:transparent}
+.chip.on{background:var(--cc);color:#031018}
+.nrfeedwrap{height:224px;overflow:hidden;margin:0 10px 8px;border:1px solid var(--line);border-radius:12px;background:var(--tape);position:relative;z-index:2}
+.nrfeed{display:flex;flex-direction:column;animation:vscroll 32s linear infinite}
+.nrit{display:flex;gap:8px;padding:9px 10px;border-bottom:1px solid var(--line);font-size:11px;line-height:1.45;cursor:pointer;align-items:flex-start}
+.nrit .cattag{flex:0 0 auto;font-size:8.5px;font-weight:900;padding:2px 6px;border-radius:4px;color:#031018;margin-top:1px}
+
+/* ---- deployed web-app responsiveness ---- */
+@media (max-width:640px){
+  body{padding:0;background:#000}
+  .side{display:none}
+  .phone{width:100vw;height:100dvh;border:0;border-radius:0;box-shadow:none}
+  .notch{display:none}
+  .top{padding-top:calc(14px + env(safe-area-inset-top))}
+  .tabs{padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+}
+.installbar{position:absolute;left:12px;right:12px;bottom:96px;z-index:65;background:var(--card);border:1.5px solid var(--accent);border-radius:14px;padding:11px 12px;display:none;align-items:center;gap:10px;font-size:12px;line-height:1.4}
+.installbar.show{display:flex}
+.installbar .ibtn{background:var(--accent);color:#fff;border:0;border-radius:9px;padding:8px 14px;font-weight:800;font-size:12px;cursor:pointer;white-space:nowrap}
+.installbar .ix{background:none;border:0;color:var(--fg);opacity:.5;font-size:16px;cursor:pointer}
+
+/* ---- guide & sales panels (desktop only) ---- */
+.gkicker{font-size:11px;letter-spacing:2px;color:#3d7bff;font-weight:800;margin:6px 0 10px}
+.gtitle{font-size:17px;font-weight:800;color:#fff;margin-bottom:8px}
+.gbody{font-size:13px;line-height:1.6}
+.gbody b{color:#e8ecf4}
+.ghint{margin-top:14px;font-size:11px;opacity:.55;font-style:italic}
+.sales .stitle{font-size:21px;line-height:1.3;color:#fff;margin-bottom:14px}
+.spoint{font-size:12.5px;line-height:1.55;margin-bottom:12px;padding-left:12px;border-left:3px solid #22e07c}
+.spoint b{color:#fff}
+.sprice{font-size:40px;font-weight:900;color:#fff;margin-top:16px}
+.sprice span{font-size:16px;color:#8892aa;font-weight:600}
+.sunder{font-size:11.5px;color:#8892aa;margin:4px 0 12px;line-height:1.5}
+.probtn{display:block;text-align:center;background:linear-gradient(135deg,#0d7a44,#22e07c);color:#04150c;font-weight:900;font-size:16px;padding:14px;border-radius:14px;text-decoration:none;box-shadow:0 8px 24px rgba(34,224,124,.25)}
+.probtn:hover{filter:brightness(1.08)}
+.ssafe{margin-top:10px;font-size:10px;opacity:.5;text-align:center;line-height:1.5}
+
+/* ---- narrow windows: the APP always comes first, panels stack under it ---- */
+@media (max-width:1180px){
+  body{flex-direction:column;align-items:center;flex-wrap:nowrap}
+  .phone{order:1}
+  #guidepanel{order:2;max-width:392px}
+  .sales{order:3;max-width:392px}
+}
+</style>
+</head>
+<body>
+
+<div class="side" id="guidepanel">
+  <h1>SAGE<span class="tag">TICKER</span></h1>
+  <div class="gkicker">HOW TO USE THIS PAGE</div>
+  <div class="gtitle" id="gtitle"></div>
+  <div class="gbody" id="gbody"></div>
+  <div class="ghint">Tap any view or tab in the app — this guide follows you.</div>
+</div>
+
+<div class="phone">
+  <div class="notch"></div>
+  <div class="screen t-dark" id="screen">
+    <canvas id="fx"></canvas>
+
+    <div class="top">
+      <div class="brand">SAGE<b>TICKER</b></div>
+      <div style="display:flex;gap:6px">
+        <span class="pill live">LIVE SIM</span>
+        <span class="pill" id="clock">--:--</span>
+      </div>
+    </div>
+
+    <div class="seg" id="viewseg">
+      <button data-v="spot" class="on">Spotlight</button>
+      <button data-v="scroll">Portfolio</button>
+      <button data-v="dual">Dual Deck</button>
+      <button data-v="rail">News Rail</button>
+    </div>
+
+    <div class="main" id="mainarea">
+
+      <!-- ================= HOME ================= -->
+      <div class="page on" id="pg-home">
+
+        <!-- Spotlight -->
+        <div id="v-spot">
+          <div class="spot">
+            <div class="ssym" id="spotSym">NVDA</div>
+            <div class="snam" id="spotName">NVIDIA Corp.</div>
+            <div class="sprc" id="spotPrc">$0.00</div>
+            <div class="schg" id="spotChg">—</div>
+            <canvas id="spark" width="330" height="90"></canvas>
+            <div class="charttabs"><span class="ctab on" data-ct="line">Line</span><span class="ctab" data-ct="bar">Bars</span><span class="ctab" data-ct="candle">Candlesticks</span></div>
+            <div class="newsbadge" id="spotNews"></div>
+            <div class="nav">
+              <button onclick="spotNav(-1)">‹ Prev</button>
+              <button onclick="openBroker(state.spotIdx)">Open in Broker</button>
+              <button onclick="spotNav(1)">Next ›</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Portfolio scroll -->
+        <div id="v-scroll" style="display:none">
+          <div class="card" style="margin-top:6px">
+            <h3>My Portfolio · Today</h3>
+            <div class="pfsum">
+              <div>
+                <div class="pfval" id="pfval">$0</div>
+                <div class="pfchg" id="pfchg">—</div>
+              </div>
+              <button class="pfnews" onclick="openPortNews()" title="News for the entire portfolio">📰<span class="embed2">ALL</span><span class="badge" id="pfbadge">0</span></button>
+            </div>
+            <canvas id="pfspark" width="340" height="70" style="display:block;margin:4px auto 4px"></canvas>
+            <div class="charttabs" style="margin-bottom:10px"><span class="ctab on" data-ct="line">Line</span><span class="ctab" data-ct="bar">Bars</span><span class="ctab" data-ct="candle">Candlesticks</span></div>
+          </div>
+          <div class="tapewrap pf" id="tape1"><div class="tlabel">MY&nbsp;PORTFOLIO</div><div class="ttrack" id="track1"></div></div>
+          <div style="font-size:10px;opacity:.55;text-align:center;padding:10px 18px">Long-press tape to pause · tap symbol → broker · tap 📰 → news · use the <b>Aa ⚙</b> button below to adjust font &amp; speed</div>
+        </div>
+
+        <!-- Dual deck: 7 scrolling decks -->
+        <div id="v-dual" style="display:none">
+          <div id="decks" style="padding-top:4px"></div>
+          <div style="font-size:10px;opacity:.6;padding:6px 16px 14px;text-align:center">Market decks scroll at or below your portfolio's speed · larger type for glanceability · <b>Aa ⚙</b> adjusts both</div>
+        </div>
+
+        <!-- News rail: spotlight-style, no chart, corporate actions highlighted -->
+        <div id="v-rail" style="display:none">
+          <div class="nrhead">
+            <div class="nrbg">📰</div>
+            <div class="ssym" id="nrSym" style="font-size:34px;font-weight:900">NVDA</div>
+            <div class="snam" id="nrName" style="font-size:11px;opacity:.6">NVIDIA Corp.</div>
+            <div class="sprc" id="nrPrc" style="font-size:36px;font-weight:800;font-family:Consolas,monospace">$0.00</div>
+            <div class="schg" id="nrChg" style="font-size:15px;font-weight:800;font-family:Consolas,monospace;margin-top:2px">—</div>
+          </div>
+          <div class="chiprow" id="nrchips">
+            <span class="chip on" data-c="ALL">All</span>
+            <span class="chip" data-c="DIV" style="--cc:#c084ff">Dividend Dates</span>
+            <span class="chip" data-c="SPLIT" style="--cc:#ffb300">Stock Splits</span>
+            <span class="chip" data-c="MA" style="--cc:#38d1ff">M&amp;A</span>
+            <span class="chip" data-c="NEWS" style="--cc:#39e07c">News Reports</span>
+          </div>
+          <div class="nrfeedwrap"><div class="nrfeed" id="nrfeed"></div></div>
+          <div class="tapewrap pf"><div class="tlabel">MY&nbsp;PORTFOLIO</div><div class="ttrack" id="track4"></div></div>
+        </div>
+      </div>
+
+      <!-- ================= PORTFOLIO ================= -->
+      <div class="page" id="pg-port">
+        <div class="card">
+          <h3>My Portfolio · Growth</h3>
+          <div id="portrows"></div>
+          <div class="totline"><span>Total Day's G/L</span><span id="totday">—</span></div>
+          <div class="totline" style="border-top:0;padding-top:0"><span>Total G/L</span><span id="tottot">—</span></div>
+          <div class="addform">
+            <input id="addsym" placeholder="Symbol (e.g. MSFT)" maxlength="6">
+            <input id="addqty" placeholder="Qty" size="4" style="flex:0 0 64px">
+            <button class="add" style="width:34px;height:34px" onclick="addHolding()">+</button>
+          </div>
+        </div>
+        <button class="btn" onclick="setTab('home');toast('Portfolio sent to the ticker tape')">▶ Send to Tape</button>
+        <div class="legal">Modeled on Investing.com portfolios: quantity, cost basis, day's G/L and total G/L per position — free tier.</div>
+      </div>
+
+      <!-- ================= DISCOVER ================= -->
+      <div class="page" id="pg-disc">
+        <div class="card"><h3>Most Active</h3><div id="mostactive"></div></div>
+        <div class="card"><h3>Top Gainers</h3><div id="gainers"></div></div>
+        <div class="card"><h3>Top Losers</h3><div id="losers"></div></div>
+        <div class="legal">Modeled on finance.yahoo.com/markets — these lists also feed the Markets tape in Dual Deck. Tap + to add to your portfolio.</div>
+      </div>
+
+      <!-- ================= SUPPORT ================= -->
+      <div class="page" id="pg-supp" style="height:100%">
+        <div class="chat">
+          <div class="msgs" id="msgs">
+            <div class="m ai">Welcome, valued investor 👋 I'm Sage — your personal SageTicker assistant, on duty 24/7. I can resolve billing questions in seconds, tune up your ticker and widgets, and process refunds on the spot. Anything bigger goes straight to our team with priority, and you'll hear back within 24 hours. How can I help you today?</div>
+            <div>
+              <span class="qbtn" onclick="ask('My ticker widget stopped updating')">Widget stopped updating</span>
+              <span class="qbtn" onclick="ask('I want a refund')">Request refund</span>
+              <span class="qbtn" onclick="ask('I found a security problem')">Security issue</span>
+            </div>
+          </div>
+          <div class="chatin">
+            <input id="chatbox" placeholder="Describe your issue…" onkeydown="if(event.key==='Enter')ask()">
+            <button onclick="ask()">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= ACCOUNT ================= -->
+      <div class="page" id="pg-acct">
+        <div class="card">
+          <h3>Theme</h3>
+          <div class="themerow" id="themes">
+            <span class="tchip on" data-t="t-dark">Dark</span>
+            <span class="tchip" data-t="t-light">Light</span>
+            <span class="tchip" data-t="t-matrix">Matrix</span>
+            <span class="tchip" data-t="t-wallst">Wall St</span>
+            <span class="tchip" data-t="t-money">Money</span>
+          </div>
+        </div>
+        <div class="card">
+          <h3>SageTicker Pro</h3>
+          <div class="plan">
+            <span class="price">$9.99</span><span class="per"> / month · first app of The Sages Investment Group</span>
+            <div style="height:8px"></div>
+            <div class="feat">Unlimited symbols — stocks, options &amp; futures</div>
+            <div class="feat">Dual Deck + News Rail views</div>
+            <div class="feat">Lock-screen Live Activity, widgets &amp; StandBy board</div>
+            <div class="feat">Matrix, Wall St &amp; AI-generated theme packs</div>
+            <div class="feat">Breaking-news alerts with broker jump-links</div>
+          </div>
+          <button class="btn" onclick="openCheckout()">Upgrade to Pro</button>
+        </div>
+        <div class="card">
+          <h3>Owner Dashboard (demo)</h3>
+          <div class="ownerkpi">
+            <div class="kpi"><div class="kv" id="kmrr">$4,270</div><div class="kl">MRR</div></div>
+            <div class="kpi"><div class="kv" id="ksub">427</div><div class="kl">SUBSCRIBERS</div></div>
+            <div class="kpi"><div class="kv">2</div><div class="kl">OPEN TICKETS</div></div>
+          </div>
+          <button class="btn sub" onclick="refundDemo()">↩ Issue Refund (demo)</button>
+          <div class="legal">Live version: Stripe payouts settle to your business checking account (account &amp; routing entered once, in Stripe — never stored in the app). Store-billed subscribers are refunded via App Store Connect / Play Console.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- tab bar -->
+    <div class="tabs">
+      <button class="on" data-t="home"><span class="ic">📈</span>Ticker</button>
+      <button data-t="port"><span class="ic">💼</span>Portfolio</button>
+      <button data-t="disc"><span class="ic">🔥</span>Discover</button>
+      <button data-t="supp"><span class="ic">💬</span>Support</button>
+      <button data-t="acct"><span class="ic">👤</span>Account</button>
+    </div>
+
+    <div class="dim" id="dim" onclick="closeSheets()"></div>
+
+    <!-- news sheet -->
+    <div class="sheet" id="newssheet">
+      <button class="close" onclick="closeSheets()">✕</button>
+      <h3 id="nstitle">📰 Breaking — NVDA</h3>
+      <div class="sub2">Tap a headline to open the full story (opens Yahoo Finance)</div>
+      <div id="nslist"></div>
+    </div>
+
+    <!-- broker sheet -->
+    <div class="sheet" id="brokersheet">
+      <button class="close" onclick="closeSheets()">✕</button>
+      <h3 id="bktitle">Open NVDA in your broker</h3>
+      <div class="sub2">SageTicker links to your broker's official app or login page — it never sees your credentials.</div>
+      <div id="bklist"></div>
+    </div>
+
+    <!-- checkout sheet -->
+    <div class="sheet" id="paysheet">
+      <button class="close" onclick="closeSheets()">✕</button>
+      <h3>Checkout — SageTicker Pro</h3>
+      <div class="sub2">$9.99 / month · cancel anytime</div>
+      <div class="payopt sel" onclick="selPay(this)"><span class="pi">💳</span> Credit / Debit Card <span style="margin-left:auto;font-size:10px;opacity:.5">Stripe</span></div>
+      <div class="payopt" onclick="selPay(this)"><span class="pi">🏦</span> Bank Account (ACH — routing &amp; account) <span style="margin-left:auto;font-size:10px;opacity:.5">Stripe + Plaid</span></div>
+      <div class="payopt" onclick="selPay(this)"><span class="pi">📱</span> Apple Pay / Google Pay <span style="margin-left:auto;font-size:10px;opacity:.5">Stripe</span></div>
+      <button class="btn" style="margin:12px 0" onclick="subscribe()">Subscribe — $9.99/mo</button>
+      <div class="legal">Your plan renews <b>automatically each month</b>. At the <b>90-day</b> mark we'll remind you to review, change, or cancel your payment option. If you make no change, your subscription simply continues monthly until you cancel. Refunds per our fair-refund policy. Payments processed by Stripe; on iPhone/Android store builds, billing runs through Apple/Google in-app purchase.</div>
+    </div>
+
+    <!-- Font & Speed FAB + sheet -->
+    <button class="fab" id="fab" onclick="openCtrl()">Aa ⚙</button>
+    <div class="sheet" id="ctrlsheet">
+      <button class="close" onclick="closeSheets()">✕</button>
+      <h3>Font Size &amp; Speed — <span id="ctrlview" style="color:var(--accent)">Portfolio</span></h3>
+      <div class="sub2">Saved separately for each page. Adjust and this panel tucks itself away — reopen anytime with the Aa ⚙ button.</div>
+      <div class="ctrls" style="margin:0;border:0;background:transparent;padding:4px 0">
+        <label>Font size <input type="range" id="fsz" min="12" max="30" value="18"><span class="val" id="fszv">18px</span></label>
+        <label>Speed <input type="range" id="spd" min="1" max="10" value="5"><span class="val" id="spdv">5</span></label>
+      </div>
+      <button class="btn" style="margin:6px 0 4px" onclick="closeSheets()">Done</button>
+    </div>
+
+    <div class="installbar" id="installbar">
+      <span id="installmsg">Install SageTicker for full-screen, one-tap access.</span>
+      <button class="ibtn" id="installbtn" onclick="doInstall()">Install</button>
+      <button class="ix" onclick="hideInstall()">✕</button>
+    </div>
+
+    <div class="toast" id="toast"></div>
+    <div class="demo">Simulated market data (live feed coming) · not investment advice</div>
+  </div>
+</div>
+
+<div class="side sales">
+  <div class="gkicker" style="color:#22e07c">WHY GO PRO</div>
+  <h2 class="stitle">Your money moves<br>every second.<br>Shouldn&rsquo;t you see it?</h2>
+  <div class="spoint"><b>You check your phone 100+ times a day.</b> Make every glance count — your entire portfolio, live, without opening a single app.</div>
+  <div class="spoint"><b>Minutes cost money.</b> The 📰 flag catches breaking news on YOUR stocks and puts you inside your own brokerage in two taps — while everyone else is still scrolling headlines.</div>
+  <div class="spoint"><b>See the whole board.</b> Seven live decks — your portfolio riding above the Dow, S&amp;P 500, Nasdaq, Futures, Commodities and Bonds. Nothing sneaks up on you.</div>
+  <div class="spoint"><b>Built the way pros watch.</b> Green up from the open, red down, line/bar/candlestick charts — the trading-floor view, in your pocket.</div>
+  <div class="sprice">$9.99<span>/month</span></div>
+  <div class="sunder">Less than one lunch. Cancel anytime.<br>Founding-member price — locked in for life.</div>
+  <a class="probtn" href="https://buy.stripe.com/7sY8wJ2rW7XAazF0f767S01" target="_blank" rel="noopener">Go Pro — Start Now</a>
+  <div class="ssafe">Secure checkout by Stripe · renews monthly · 90-day review reminder · cancel anytime</div>
+</div>
+
+<script>
+/* =================== CONFIG =================== */
+const PAYMENT_LINK = "https://buy.stripe.com/7sY8wJ2rW7XAazF0f767S01";  // LIVE Stripe checkout — SageTicker Pro $9.99/mo
+
+/* =================== DATA =================== */
+const NAMES={NVDA:'NVIDIA Corp.',AAPL:'Apple Inc.',TSLA:'Tesla Inc.',SPY:'SPDR S&P 500 ETF',AMZN:'Amazon.com',MSFT:'Microsoft',QQQ:'Invesco QQQ','/ES':'E-mini S&P 500 Future','AAPL 260918C250':'AAPL Sep 18 \'26 250 Call',PLTR:'Palantir',AMD:'Advanced Micro Devices',META:'Meta Platforms',GOOGL:'Alphabet A',COIN:'Coinbase',SOFI:'SoFi Technologies',F:'Ford Motor',NIO:'NIO Inc.',RIVN:'Rivian',LCID:'Lucid',SNAP:'Snap Inc.',INTC:'Intel',BAC:'Bank of America'};
+function mk(sym,open,qty,cost,news){const j=(Math.random()-.45)*open*.02;return{sym,open,price:open+j,qty,cost,news:!!news,hist:[]}}
+let port=[mk('NVDA',185.24,40,142.10,true),mk('AAPL',236.80,60,201.35,false),mk('TSLA',246.00,25,265.40,true),
+  mk('SPY',637.10,30,580.00,false),mk('AMZN',228.45,35,196.20,false),mk('AAPL 260918C250',8.45,10,6.20,false),
+  mk('/ES',6392.50,2,6100.00,false),mk('QQQ',568.30,20,510.75,true)];
+/* ----- market decks (Dual Deck view) ----- */
+const dowA=[mk('DOW',44880,0,0),mk('UNH',305.2,0,0),mk('GS',712.4,0,0),mk('CAT',430.1,0,0),mk('HD',392.6,0,0),mk('MCD',300.3,0,0),mk('BA',228.7,0,0),mk('JPM',298.4,0,0)];
+const spxA=[mk('S&P 500',6385,0,0),mk('MSFT',522.3,0,0),mk('NVDA',185.2,0,0),mk('AAPL',236.8,0,0),mk('AMZN',228.5,0,0),mk('META',742.1,0,0),mk('GOOGL',201.4,0,0),mk('BRK.B',472.9,0,0)];
+const ndxA=[mk('NASDAQ',21240,0,0),mk('TSLA',246.0,0,0),mk('AVGO',290.6,0,0),mk('NFLX',1215.0,0,0),mk('ADBE',372.4,0,0),mk('COST',962.1,0,0),mk('QQQ',568.3,0,0),mk('BTC',118450,0,0)];
+const futA=[mk('/ES',6392.5,0,0),mk('/NQ',23310.0,0,0),mk('/YM',44930,0,0),mk('/RTY',2247.5,0,0),mk('/ZB',114.28,0,0),mk('/6E',1.162,0,0),mk('VIX',15.8,0,0)];
+const cmdA=[mk('WTI OIL',67.4,0,0),mk('BRENT',70.9,0,0),mk('GOLD',3392,0,0),mk('SILVER',38.6,0,0),mk('COPPER',4.48,0,0),mk('NAT GAS',3.05,0,0),mk('CORN',4.12,0,0),mk('WHEAT',5.36,0,0)];
+const bndA=[mk('2-YR',3.72,0,0),mk('5-YR',3.89,0,0),mk('10-YR',4.21,0,0),mk('30-YR',4.82,0,0),mk('T-BOND',114.4,0,0),mk('TLT',88.9,0,0)];
+const DECKS=[
+  ['MY PORTFOLIO','','pf','port'],
+  ['DOW JONES','#c0392b','mk','dow'],
+  ['S&P 500','#8e44ad','mk','spx'],
+  ['NASDAQ','#2980b9','mk','ndx'],
+  ['FUTURES','#d35400','mk','fut'],
+  ['COMMODITIES','#b7950b','mk','cmd'],
+  ['BONDS','#16a085','mk','bnd']];
+const SOURCES={port:()=>port,dow:()=>dowA,spx:()=>spxA,ndx:()=>ndxA,fut:()=>futA,cmd:()=>cmdA,bnd:()=>bndA};
+let disc={
+  active:[mk('PLTR',158.30,0,0,true),mk('SOFI',22.15,0,0),mk('F',11.42,0,0),mk('INTC',20.85,0,0),mk('SNAP',9.12,0,0)],
+  gain:[mk('AMD',171.20,0,0,true),mk('COIN',312.40,0,0),mk('META',742.10,0,0)],
+  lose:[mk('NIO',4.82,0,0),mk('RIVN',12.35,0,0),mk('LCID',2.41,0,0)]};
+// force gainers up / losers down
+disc.gain.forEach(q=>q.price=q.open*(1+.02+Math.random()*.05));
+disc.lose.forEach(q=>q.price=q.open*(1-.02-Math.random()*.05));
+const HEADLINES={
+  NVDA:[['NVIDIA unveils next-gen Rubin AI accelerators; cloud partners lining up','Reuters · 32m ago'],
+        ['Analysts lift NVDA targets after record data-center bookings',"Barron's · 1h ago"]],
+  TSLA:[['Tesla begins robotaxi expansion into three new metros','CNBC · 44m ago'],
+        ['TSLA deliveries seen mixed as EV tax dynamics shift','Bloomberg · 2h ago']],
+  QQQ:[['Tech megacaps drive Nasdaq to fresh intraday high','Yahoo Finance · 21m ago']],
+  PLTR:[['Palantir surges on new government AI contract award','MarketWatch · 15m ago']],
+  AMD:[['AMD gains after server-chip share data tops expectations','Reuters · 50m ago']],
+  DEFAULT:[['Breaking market headline for this symbol','Newswire · just now']]};
+const RAILNEWS=[['Fed officials signal patience on next rate move','Reuters'],['S&P 500 hovers near record as earnings roll in','Yahoo Finance'],
+  ['Oil slips as supply outlook improves','Bloomberg'],['AI capex supercycle: what the street expects next','CNBC'],
+  ['Treasury yields steady ahead of auction','MarketWatch'],['Dollar softens; gold holds above $3,350','FT'],
+  ['Chip stocks extend rally on data-center demand',"Barron's"],['Futures point to firm open across indexes','Investing.com']];
+const BROKERS=[['Charles Schwab','#0a66c2','https://client.schwab.com/Areas/Access/Login'],
+  ['Fidelity','#4b9640','https://digital.fidelity.com/prgw/digital/login/full-page'],
+  ['Robinhood','#1fc07c','https://robinhood.com/login'],
+  ['E*TRADE (Morgan Stanley)','#6633cc','https://us.etrade.com/e/t/user/login'],
+  ['Interactive Brokers','#d31f2e','https://www.interactivebrokers.com/sso/Login'],
+  ['Webull','#f5a623','https://www.webull.com/center/login'],
+  ['tastytrade','#e0322e','https://my.tastytrade.com/auth'],
+  ['Merrill Edge','#00377a','https://olui2.fs.ml.com/login/login.aspx']];
+let state={view:'spot',tab:'home',spotIdx:0,theme:'t-dark',chartType:'line'};
+/* =================== side guide =================== */
+const GUIDE={
+ spot:["Spotlight","One holding, full screen. <b>Swipe Prev/Next</b> to cycle your portfolio. The live chart switches between <b>Line, Bars and Candlesticks</b> with the buttons under it. A 📰 badge means breaking news — tap it. <b>Open in Broker</b> jumps to your brokerage login."],
+ scroll:["Portfolio Tape","Your whole portfolio scrolls like the CNBC ticker — green ▲ up from the open, red ▼ down. The top card shows total value, today's P&amp;L and a live chart; the <b>📰 ALL</b> button collects news for every holding. <b>Long-press the tape to pause.</b> The <b>Aa ⚙</b> button sets font size &amp; speed for this page only."],
+ dual:["Dual Deck","Seven markets at once: your portfolio on top, then Dow, S&amp;P 500, Nasdaq, Futures, Commodities and Bonds — each color-labeled, markets scrolling slower than your holdings. Tap any of your symbols to open your broker."],
+ rail:["News Rail","The big display cycles through your holdings while the feed below streams <b>Dividend Dates</b> (purple), <b>Stock Splits</b> (amber), <b>M&amp;A</b> (cyan) and <b>News Reports</b> (green). Tap a chip to filter, tap any item to read."],
+ port:["Portfolio Manager","Add holdings with quantity — the app tracks day's and total gain/loss per position, Investing.com-style. Tap a row to open that stock in your broker. <b>Send to Tape</b> pushes the list onto the scrolling ticker."],
+ disc:["Discover","Yahoo-Finance-style market movers: Most Active, Top Gainers, Top Losers — live. Tap <b>+</b> on any row to add it straight to your portfolio."],
+ supp:["Support","The AI assistant fixes billing and app issues instantly, 24/7. Anything major is escalated to a human by email within minutes."],
+ acct:["Account & Themes","Pick your look — Dark, Light, <b>Matrix money rain</b>, Wall St or Money. Upgrade to Pro here, manage your subscription, and view the owner dashboard."]};
+function setGuide(k){const g=GUIDE[k]||GUIDE.spot;const t=document.getElementById('gtitle'),b=document.getElementById('gbody');if(t){t.textContent=g[0];b.innerHTML=g[1]}}
+
+
+/* =================== HELPERS =================== */
+const $=id=>document.getElementById(id);
+const fmt=(n,d=2)=>n.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+function chg(q){const c=q.price-q.open;return{c,p:q.open?c/q.open*100:0,up:c>=0}}
+function toast(t){const el=$('toast');el.textContent=t;el.classList.add('on');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('on'),2600)}
+
+/* =================== TICKER RENDER =================== */
+function newsIconHTML(sym){return `<span class="newsic" data-news="${sym}"><span class="paper">📰</span><span class="embed">${sym.split(' ')[0].replace('/','').slice(0,4)}</span></span>`}
+function priceLabel(q,src){const isYield=src==='bnd'&&/YR/.test(q.sym);return isYield?fmt(q.price)+'%':'$'+fmt(q.price)}
+function itemHTML(q,i,src){const {c,p,up}=chg(q);const cls=up?'up':'dn';const ar=up?'▲':'▼';const sg=up?'+':'−';
+  return `<span class="titem" data-src="${src}" data-i="${i}">${q.news?newsIconHTML(q.sym):''}<span class="sym">${q.sym}</span>`+
+  `<span class="prc" data-f="p">${priceLabel(q,src)}</span>`+
+  `<span class="${cls}" data-f="c">${ar} ${sg}${fmt(Math.abs(c))} (${sg}${fmt(Math.abs(p))}%)</span></span><span class="sep">◆</span>`}
+function tapeHTML(arr,src){const one=arr.map((q,i)=>itemHTML(q,i,src)).join('');return one+one}
+function buildDecks(){
+  if(!$('decks'))return;
+  $('decks').innerHTML=DECKS.map(d=>`<div class="tapewrap ${d[2]} deck"><div class="tlabel"${d[1]?` style="background:${d[1]}"`:''}>${d[0].replace(/ /g,'&nbsp;')}</div><div class="ttrack" data-deck="${d[3]}"></div></div>`).join('');
+}
+function renderTapes(){
+  ['track1','track4'].forEach(id=>{if($(id))$(id).innerHTML=tapeHTML(port,'port')});
+  document.querySelectorAll('[data-deck]').forEach(t=>{t.innerHTML=tapeHTML(SOURCES[t.dataset.deck](),t.dataset.deck)});
+}
+function updateTapes(){ // update text in place; animation keeps running
+  document.querySelectorAll('.titem').forEach(el=>{
+    const src=el.dataset.src,i=+el.dataset.i;
+    const q=SOURCES[src]?SOURCES[src]()[i]:null;
+    if(!q)return;const {c,p,up}=chg(q);const ar=up?'▲':'▼';const sg=up?'+':'−';
+    el.querySelector('[data-f=p]').textContent=priceLabel(q,src);
+    const ce=el.querySelector('[data-f=c]');ce.textContent=`${ar} ${sg}${fmt(Math.abs(c))} (${sg}${fmt(Math.abs(p))}%)`;
+    ce.className=up?'up':'dn';ce.setAttribute('data-f','c');
+  });
+}
+/* ----- portfolio summary (chart + whole-portfolio news) ----- */
+let pfHist=[];
+function pfTotals(){let v=0,o=0;port.forEach(q=>{v+=q.price*q.qty;o+=q.open*q.qty});return{v,o}}
+function renderPfSummary(){
+  if(!$('pfval')||state.tab!=='home'||state.view!=='scroll')return;
+  const {v,o}=pfTotals();const c=v-o,p=o?c/o*100:0,up=c>=0,sg=up?'+':'−';
+  $('pfval').textContent='$'+fmt(v,0);
+  $('pfchg').innerHTML=`<span style="color:var(--${up?'up':'down'})">${up?'▲':'▼'} ${sg}$${fmt(Math.abs(c),0)} (${sg}${fmt(Math.abs(p))}%) today</span>`;
+  $('pfbadge').textContent=port.filter(q=>q.news).length;
+  drawChart($('pfspark'),pfHist.length>1?pfHist:[o,v],o);
+}
+function openPortNews(){
+  $('nstitle').textContent='📰 Portfolio News — all holdings';
+  const withNews=port.filter(q=>q.news);
+  $('nslist').innerHTML=withNews.length?withNews.map(q=>{const key=q.sym.split(' ')[0];
+    return (HEADLINES[key]||HEADLINES.DEFAULT).map(h=>`<div class="nitem" onclick="window.open('https://finance.yahoo.com/quote/${key.replace('/','')}/news','_blank')"><b style="color:var(--accent)">${key}</b> — ${h[0]}<div class="src">${h[1]}</div></div>`).join('')
+  }).join(''):'<div class="nitem">No breaking news across your holdings right now.</div>';
+  $('dim').classList.add('on');$('newssheet').classList.add('open');
+}
+
+/* =================== SIM ENGINE =================== */
+function tick(){
+  [...port,...dowA,...spxA,...ndxA,...futA,...cmdA,...bndA,...disc.active,...disc.gain,...disc.lose].forEach(q=>{
+    q.price=Math.max(.01,q.price*(1+(Math.random()-.5)*.0035));
+    q.hist.push(q.price);if(q.hist.length>70)q.hist.shift();
+  });
+  const t=pfTotals();pfHist.push(t.v);if(pfHist.length>70)pfHist.shift();
+  updateTapes();renderSpot();renderPort();renderDisc();renderPfSummary();
+  if(state.view==='rail')renderNRHead();
+}
+setInterval(tick,1500);
+
+/* =================== CHART ENGINE (Line / Bars / Candlesticks) =================== */
+function drawChart(cv,hist,open){
+  const x=cv.getContext('2d');x.clearRect(0,0,cv.width,cv.height);
+  const h=hist.length>1?hist:[open,open];
+  const mn=Math.min(...h,open),mx=Math.max(...h,open),rng=(mx-mn)||1;
+  const Y=v=>cv.height-8-((v-mn)/rng)*(cv.height-16);
+  const css=getComputedStyle($('screen'));
+  const UP=css.getPropertyValue('--up').trim(),DN=css.getPropertyValue('--down').trim();
+  /* dashed open-price reference line */
+  x.strokeStyle='rgba(150,160,180,.35)';x.setLineDash([4,4]);x.beginPath();
+  x.moveTo(0,Y(open));x.lineTo(cv.width,Y(open));x.stroke();x.setLineDash([]);
+  const t=state.chartType;
+  if(t==='line'){
+    x.strokeStyle=h[h.length-1]>=open?UP:DN;x.lineWidth=2.2;x.beginPath();
+    h.forEach((v,i)=>{const px=i/(h.length-1)*cv.width;i?x.lineTo(px,Y(v)):x.moveTo(px,Y(v))});
+    x.stroke();return;
+  }
+  /* aggregate the tick stream into OHLC buckets */
+  const N=Math.min(14,Math.max(6,Math.floor(h.length/4)));
+  const per=Math.max(1,Math.ceil(h.length/N));
+  const bs=[];
+  for(let i=0;i<h.length;i+=per){const seg=h.slice(i,i+per);
+    bs.push({o:seg[0],c:seg[seg.length-1],hi:Math.max(...seg),lo:Math.min(...seg)})}
+  const bw=cv.width/bs.length;
+  bs.forEach((b,i)=>{
+    const cx=i*bw+bw/2;const col=b.c>=b.o?UP:DN;
+    x.strokeStyle=col;x.fillStyle=col;x.lineWidth=1.6;
+    x.beginPath();x.moveTo(cx,Y(b.hi));x.lineTo(cx,Y(b.lo));x.stroke();   /* high-low wick */
+    if(t==='candle'){
+      const top=Y(Math.max(b.o,b.c)),bot=Y(Math.min(b.o,b.c));
+      x.fillRect(cx-bw*.28,top,bw*.56,Math.max(2,bot-top));               /* body */
+    }else{ /* OHLC bar: open tick left, close tick right */
+      x.beginPath();x.moveTo(cx-bw*.3,Y(b.o));x.lineTo(cx,Y(b.o));x.stroke();
+      x.beginPath();x.moveTo(cx,Y(b.c));x.lineTo(cx+bw*.3,Y(b.c));x.stroke();
+    }
+  });
+}
+document.querySelectorAll('.ctab').forEach(c=>c.onclick=()=>{
+  state.chartType=c.dataset.ct;
+  document.querySelectorAll('.ctab').forEach(x=>x.classList.toggle('on',x.dataset.ct===state.chartType));
+  renderSpot();renderPfSummary();
+  toast({line:'Line chart',bar:'OHLC bar chart',candle:'Candlestick chart'}[state.chartType]+' selected')});
+
+/* =================== SPOTLIGHT =================== */
+function renderSpot(){
+  const q=port[state.spotIdx];if(!q||state.view!=='spot')return;
+  const {c,p,up}=chg(q);
+  $('spotSym').textContent=q.sym;$('spotName').textContent=NAMES[q.sym]||'—';
+  $('spotPrc').textContent='$'+fmt(q.price);
+  const sg=up?'+':'−';
+  $('spotChg').innerHTML=`<span class="${up?'up':'dn'}">${up?'▲':'▼'} ${sg}$${fmt(Math.abs(c))}  (${sg}${fmt(Math.abs(p))}%) from open</span>`;
+  $('spotNews').innerHTML=q.news?`<span class="ghost" onclick="openNews('${q.sym}')">📰 Breaking news on ${q.sym.split(' ')[0]} — tap to read</span>`:'';
+  drawChart($('spark'),q.hist.length?q.hist:[q.open,q.price],q.open);
+}
+function spotNav(d){state.spotIdx=(state.spotIdx+d+port.length)%port.length;renderSpot()}
+
+/* =================== PORTFOLIO TAB =================== */
+function renderPort(){
+  if(state.tab!=='port')return;
+  let day=0,tot=0;
+  $('portrows').innerHTML=port.map((q,i)=>{const {c,p,up}=chg(q);
+    const dayGL=c*q.qty,totGL=(q.price-q.cost)*q.qty;day+=dayGL;tot+=totGL;const sg=up?'+':'−';
+    return `<div class="row" onclick="openBroker(${i})"><span class="rs">${q.sym.split(' ')[0]}</span>`+
+    `<span class="rn">${q.qty}× · cost $${fmt(q.cost)}${q.news?' · 📰':''}</span>`+
+    `<span class="rp">$${fmt(q.price)}</span>`+
+    `<span class="rc ${up?'up':'dn'}" style="color:var(--${up?'up':'down'})">${sg}${fmt(Math.abs(p))}%</span></div>`}).join('');
+  const f=(v)=>`<span style="color:var(--${v>=0?'up':'down'})">${v>=0?'+':'−'}$${fmt(Math.abs(v))}</span>`;
+  $('totday').innerHTML=f(day);$('tottot').innerHTML=f(tot);
+}
+function addHolding(){
+  const s=$('addsym').value.trim().toUpperCase(),qy=parseFloat($('addqty').value)||10;
+  if(!s)return;const base=50+Math.random()*400;
+  port.push(mk(s,base,qy,base*.92,Math.random()<.3));
+  $('addsym').value='';$('addqty').value='';renderTapes();renderPort();toast(s+' added to portfolio')}
+
+/* =================== DISCOVER =================== */
+function drow(q,i,list){const {p,up}=chg(q);const sg=up?'+':'−';
+  return `<div class="row"><span class="rs">${q.sym}</span><span class="rn">${NAMES[q.sym]||''}</span>`+
+  `<span class="rp">$${fmt(q.price)}</span><span class="rc" style="color:var(--${up?'up':'down'})">${sg}${fmt(Math.abs(p))}%</span>`+
+  `<button class="add" onclick="event.stopPropagation();addFromDisc('${list}',${i})">+</button></div>`}
+function renderDisc(){
+  if(state.tab!=='disc')return;
+  $('mostactive').innerHTML=disc.active.map((q,i)=>drow(q,i,'active')).join('');
+  $('gainers').innerHTML=disc.gain.map((q,i)=>drow(q,i,'gain')).join('');
+  $('losers').innerHTML=disc.lose.map((q,i)=>drow(q,i,'lose')).join('');
+}
+function addFromDisc(list,i){const q=disc[list][i];
+  if(port.some(x=>x.sym===q.sym)){toast(q.sym+' is already in your portfolio');return}
+  port.push(mk(q.sym,q.open,10,q.price,q.news));renderTapes();toast(q.sym+' added — see it on the tape')}
+
+/* =================== NEWS =================== */
+function openNews(sym){
+  const key=sym.split(' ')[0];
+  $('nstitle').textContent='📰 Breaking — '+key;
+  const items=HEADLINES[key]||HEADLINES.DEFAULT;
+  $('nslist').innerHTML=items.map(h=>`<div class="nitem" onclick="window.open('https://finance.yahoo.com/quote/${key.replace('/','')}/news','_blank')">${h[0]}<div class="src">${h[1]}</div></div>`).join('');
+  $('dim').classList.add('on');$('newssheet').classList.add('open')}
+/* ----- News Rail: spotlight-style header + corporate-action feed ----- */
+const EVENTS=[
+ ['DIV','AAPL','Ex-dividend date Aug 11 — $0.26/share, payable Aug 21','#c084ff'],
+ ['DIV','MSFT','Ex-dividend Aug 20 — $0.83/share quarterly','#c084ff'],
+ ['DIV','SPY','Quarterly distribution est. Sep 19 — ~$1.76/share','#c084ff'],
+ ['SPLIT','NVDA','Street chatter: board seen weighing a new split after the 10-for-1','#ffb300'],
+ ['SPLIT','TSLA','Shareholder proposal filed seeking a 3-for-1 split','#ffb300'],
+ ['MA','AMZN','Reported in advanced talks to acquire AI-robotics startup','#38d1ff'],
+ ['MA','QQQ','Holding COIN jumps on exchange-consolidation reports','#38d1ff'],
+ ['NEWS','NVDA','Unveils next-gen Rubin AI accelerators; cloud partners line up','#39e07c'],
+ ['NEWS','TSLA','Robotaxi service expands into three new metros','#39e07c'],
+ ['NEWS','SPY','S&P 500 hovers near record as earnings roll in','#39e07c'],
+ ['NEWS','AAPL','Services revenue on pace for a fresh quarterly high','#39e07c']];
+const CATNAME={DIV:'DIVIDEND',SPLIT:'SPLIT',MA:'M&A',NEWS:'NEWS'};
+let railFilter='ALL',railIdx=0;
+function renderNRFeed(){
+  const list=EVENTS.filter(e=>railFilter==='ALL'||e[0]===railFilter);
+  const one=list.map(e=>`<div class="nrit" onclick="openNews('${e[1]}')"><span class="cattag" style="background:${e[3]}">${CATNAME[e[0]]}</span><span><b>${e[1]}</b> — ${e[2]}</span></div>`).join('');
+  $('nrfeed').innerHTML=one+one;
+}
+function renderNRHead(){
+  const q=port[railIdx%port.length];if(!q||!$('nrSym'))return;
+  const {c,p,up}=chg(q);const sg=up?'+':'−';
+  $('nrSym').textContent=q.sym.split(' ')[0];
+  $('nrName').textContent=NAMES[q.sym]||'—';
+  $('nrPrc').textContent='$'+fmt(q.price);
+  $('nrChg').innerHTML=`<span style="color:var(--${up?'up':'down'})">${up?'▲':'▼'} ${sg}$${fmt(Math.abs(c))} (${sg}${fmt(Math.abs(p))}%) from open</span>`;
+}
+setInterval(()=>{if(state.view==='rail'&&state.tab==='home'){railIdx=(railIdx+1)%port.length;renderNRHead()}},4000);
+document.querySelectorAll('#nrchips .chip').forEach(ch=>ch.onclick=()=>{
+  document.querySelectorAll('#nrchips .chip').forEach(x=>x.classList.remove('on'));ch.classList.add('on');
+  railFilter=ch.dataset.c;renderNRFeed()});
+
+/* =================== BROKER =================== */
+function openBroker(i){
+  const q=port[i]||port[0];
+  $('bktitle').textContent='Open '+q.sym.split(' ')[0]+' in your broker';
+  $('bklist').innerHTML=BROKERS.map(b=>`<div class="brk" onclick="window.open('${b[2]}','_blank')"><span class="logo" style="background:${b[1]}">${b[0][0]}</span>${b[0]}<span style="margin-left:auto;font-size:10px;opacity:.45">login ↗</span></div>`).join('');
+  $('dim').classList.add('on');$('brokersheet').classList.add('open')}
+
+/* =================== CHECKOUT =================== */
+function openCheckout(){$('dim').classList.add('on');$('paysheet').classList.add('open')}
+function selPay(el){document.querySelectorAll('.payopt').forEach(x=>x.classList.remove('sel'));el.classList.add('sel')}
+function subscribe(){
+  if(PAYMENT_LINK){window.open(PAYMENT_LINK,'_blank');return}
+  closeSheets();
+  toast('✅ Demo subscription active! (Paste your Stripe Payment Link into PAYMENT_LINK to charge for real)');
+  $('kmrr').textContent='$4,280';$('ksub').textContent='428'}
+function refundDemo(){toast('↩ $9.99 refunded via Stripe (demo) — logged with reason code, customer emailed')}
+function closeSheets(){document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('open'));$('dim').classList.remove('on')}
+
+/* =================== SUPPORT CHAT =================== */
+function ask(txt){
+  const box=$('chatbox');const t=(txt||box.value).trim();if(!t)return;box.value='';
+  const m=$('msgs');m.insertAdjacentHTML('beforeend',`<div class="m me">${t}</div>`);
+  let re;
+  const lo=t.toLowerCase();
+  if(lo.includes('refund'))re="I can help with that. Store subscriptions are refunded through Apple/Google; web subscriptions I can refund instantly via Stripe. I've started a refund request for your last $9.99 charge — you'll get an email confirmation. Anything else?";
+  else if(lo.includes('widget')||lo.includes('updating'))re="Let's fix it: 1) Open Settings → tap 'Refresh widget cache'. 2) Make sure Low Power Mode is off (iOS pauses Live Activities). 3) Remove and re-add the widget. That resolves ~90% of cases — did it update?";
+  else if(lo.includes('security'))re="⚠️ Thank you — security reports are always MAJOR severity. I've escalated this to the owner at TheSagesInvestmentGroup@outlook.com with your full report and a suggested mitigation. You'll hear back within 24 hours.";
+  else re="Got it. I can resolve most billing, data, and widget issues instantly. If this turns out to be a major issue (payments >$20, security, outage), I'll escalate it by email to the owner with a full transcript. Could you share a bit more detail?";
+  setTimeout(()=>{m.insertAdjacentHTML('beforeend',`<div class="m ai">${re}</div>`);m.scrollTop=m.scrollHeight},600);
+  m.scrollTop=m.scrollHeight}
+
+/* =================== FX BACKGROUNDS =================== */
+const fx=$('fx');const fctx=fx.getContext('2d');let drops=[];
+function fxResize(){fx.width=$('screen').clientWidth;fx.height=$('screen').clientHeight;
+  drops=Array.from({length:26},()=>({x:Math.random()*fx.width,y:Math.random()*fx.height,v:.6+Math.random()*1.8,g:'$€¥£₿¢'[Math.floor(Math.random()*6)],s:10+Math.random()*16}))}
+function fxLoop(){
+  const th=state.theme;
+  fctx.clearRect(0,0,fx.width,fx.height);
+  if(th==='t-matrix'||th==='t-money'){
+    drops.forEach(d=>{
+      fctx.font=d.s+'px monospace';
+      fctx.fillStyle=th==='t-matrix'?'rgba(57,255,136,.55)':'rgba(123,216,138,.30)';
+      fctx.fillText(d.g,d.x,d.y);
+      d.y+=d.v;if(d.y>fx.height+20){d.y=-20;d.x=Math.random()*fx.width}});
+  }
+  requestAnimationFrame(fxLoop)}
+
+/* =================== NAV / CONTROLS =================== */
+document.querySelectorAll('#viewseg button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#viewseg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  state.view=b.dataset.v;setGuide(state.view);
+  ['spot','scroll','dual','rail'].forEach(v=>$('v-'+v).style.display=v===state.view?'block':'none');
+  if(state.view==='spot')renderSpot();
+  if(state.view==='rail'){renderNRHead();renderNRFeed()}
+  if(state.view==='scroll')renderPfSummary();
+});
+/* ----- Font & Speed sheet (FAB) — settings saved PER PAGE ----- */
+const VIEWNAMES={spot:'Spotlight',scroll:'Portfolio',dual:'Dual Deck',rail:'News Rail'};
+const VIEWCFG={spot:{fs:18,spd:5},scroll:{fs:18,spd:5},dual:{fs:18,spd:5},rail:{fs:18,spd:5}};
+function applyCfg(v){
+  const cfg=VIEWCFG[v],el=$('v-'+v);if(!el)return;
+  const ts=56-cfg.spd*5;
+  el.style.setProperty('--tfs',cfg.fs+'px');
+  el.style.setProperty('--tspeed',ts+'s');
+  el.style.setProperty('--mspeed',(ts*1.2)+'s'); /* markets stay equal-or-slower */
+}
+let ctrlTimer;
+function openCtrl(){
+  const cfg=VIEWCFG[state.view];
+  $('ctrlview').textContent=VIEWNAMES[state.view];
+  $('fsz').value=cfg.fs;$('fszv').textContent=cfg.fs+'px';
+  $('spd').value=cfg.spd;$('spdv').textContent=cfg.spd;
+  $('dim').classList.add('on');$('ctrlsheet').classList.add('open')}
+function ctrlAutoHide(){clearTimeout(ctrlTimer);ctrlTimer=setTimeout(closeSheets,2000)}
+function setTab(t){state.tab=t;
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.t===t));
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
+  $('pg-'+t).classList.add('on');
+  $('viewseg').style.display=t==='home'?'flex':'none';
+  $('fab').style.display=t==='home'?'block':'none';setGuide(t==='home'?state.view:t);
+  renderPort();renderDisc();renderPfSummary()}
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>setTab(b.dataset.t));
+$('themes').querySelectorAll('.tchip').forEach(c=>c.onclick=()=>{
+  $('themes').querySelectorAll('.tchip').forEach(x=>x.classList.remove('on'));c.classList.add('on');
+  state.theme=c.dataset.t;
+  $('screen').className='screen '+state.theme;
+  toast(c.textContent+' theme applied')});
+$('fsz').oninput=e=>{VIEWCFG[state.view].fs=+e.target.value;$('fszv').textContent=e.target.value+'px';applyCfg(state.view);ctrlAutoHide()};
+$('spd').oninput=e=>{VIEWCFG[state.view].spd=+e.target.value;$('spdv').textContent=e.target.value;applyCfg(state.view);ctrlAutoHide()};
+// pause on hold (delegated — works for dynamically built decks too)
+document.addEventListener('pointerdown',e=>{const w=e.target.closest('.tapewrap');if(w)w.classList.add('paused')});
+['pointerup','pointercancel'].forEach(ev=>document.addEventListener(ev,()=>document.querySelectorAll('.tapewrap.paused').forEach(w=>w.classList.remove('paused'))));
+// delegate ticker clicks
+document.addEventListener('click',e=>{
+  const ni=e.target.closest('.newsic');if(ni){openNews(ni.dataset.news);return}
+  const it=e.target.closest('.titem');
+  if(it&&it.dataset.src==='port'){openBroker(+it.dataset.i)}});
+// clock
+setInterval(()=>{$('clock').textContent=new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})},1000);
+
+/* =================== INIT =================== */
+buildDecks();renderTapes();renderNRFeed();renderNRHead();
+Object.keys(VIEWCFG).forEach(applyCfg);renderSpot();setGuide('spot');
+fxResize();fxLoop();tick();
+
+
+
+/* =================== PWA install =================== */
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{})}
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;showInstall(false)});
+function isIOS(){return /iphone|ipad|ipod/i.test(navigator.userAgent)&&!window.MSStream}
+function inStandalone(){return window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true}
+function showInstall(ios){if(inStandalone()||localStorage.getItem('stk_install_dismissed'))return;
+  const bar=document.getElementById('installbar');
+  if(ios){document.getElementById('installmsg').innerHTML='Add SageTicker to your Home Screen: tap <b>Share</b> (the square with the arrow) then <b>Add to Home Screen</b>.';document.getElementById('installbtn').style.display='none'}
+  bar.classList.add('show')}
+function hideInstall(){document.getElementById('installbar').classList.remove('show');try{localStorage.setItem('stk_install_dismissed','1')}catch(e){}}
+function doInstall(){if(deferredPrompt){deferredPrompt.prompt();deferredPrompt.userChoice.then(()=>hideInstall())}}
+setTimeout(()=>{if(isIOS())showInstall(true)},4000);
+window.addEventListener('resize',fxResize);
+</script>
+</body>
+</html>
